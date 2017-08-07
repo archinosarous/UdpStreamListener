@@ -1,0 +1,8 @@
+
+target/
+.idea/
+project/project/
+project/target/
+releases/
+*.iml
+*.swp
