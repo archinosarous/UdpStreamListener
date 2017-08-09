@@ -1,3 +1,5 @@
+package com.test.udp
+
 import java.net.InetSocketAddress
 
 import akka.actor.ActorSystem
