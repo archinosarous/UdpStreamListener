@@ -1,4 +1,4 @@
-package com.test.udp
+
 
 import java.net.InetSocketAddress
 import akka.actor.{ActorLogging, ActorRef, Props}
@@ -8,6 +8,7 @@ import akka.stream.scaladsl.Source
 import jdk.nashorn.api.scripting.JSObject
 import jdk.nashorn.internal.parser.JSONParser
 import play.api.libs.json.Json
+import scala.util.Try
 
 
 object ListenUdp {
@@ -30,10 +31,9 @@ class ListenUdp(remote: InetSocketAddress) extends ActorPublisher[Udp.Received] 
     case Udp.Received(data, remote) =>
       log.info(s" ############### data: $data")
       log.info(s" ############### data: ${data.decodeString("UTF-8")}")
-      log.info(s" ############### data: ${data.decodeString("UTF-8")}")
       log.info(s" ############### remote: $remote")
       val processed = convertToGelf(data.decodeString("UTF-8"))
-//      println(s"%%%%%%%%%%%%%% processed: $processed")
+      println(s"%%%%%%%%%%%%%% processed: $processed")
         socket ! Udp.Send(data, remote) // example server echoes back
      // nextActor ! processed
     case Udp.Unbind  => socket ! Udp.Unbind
@@ -41,12 +41,37 @@ class ListenUdp(remote: InetSocketAddress) extends ActorPublisher[Udp.Received] 
   }
 
   private def convertToGelf(gelfString: String): GelfFormat = {
+
     val jsonObject = Json.parse(gelfString)
-    println(s"############### $jsonObject")
-    println(s"############### $gelfString")
-    val x = jsonObject.as[GelfFormat]
-    println(s"############## x: $x")
-    x
+    val baseData = jsonObject.as[BaseData]
+
+    val clearedInput = gelfString.substring(1,gelfString.length-1).split(",").toSeq
+    val extraData = clearedInput.filter(_.trim.startsWith("\"_"))
+    val numberData = extraData filter { e =>
+      Try(e.split(":").last.toDouble).isSuccess
+    } map { numberDataString =>
+      val x = numberDataString.split(":").toSeq
+      NumberMetaData(
+        key = x(0),
+        value = x(1).toDouble
+      )
+    }
+
+    val stringData = extraData filterNot { e =>
+      Try(e.split(":").last.toDouble).isSuccess
+    } map { stringDataString =>
+      val x = stringDataString.split(":").toSeq
+      StringMetaData(
+        key = x(0),
+        value = x(1)
+      )
+    }
+
+    GelfFormat(
+      baseData,
+      stringData,
+      numberData
+    )
   }
 
 }
