@@ -1,13 +1,15 @@
+package io.skul
+
 
 
 import java.net.InetSocketAddress
+
 import akka.actor.{ActorLogging, ActorRef, Props}
 import akka.io.{IO, Udp}
 import akka.stream.actor.ActorPublisher
 import akka.stream.scaladsl.Source
-import jdk.nashorn.api.scripting.JSObject
-import jdk.nashorn.internal.parser.JSONParser
 import play.api.libs.json.Json
+
 import scala.util.Try
 
 
@@ -30,6 +32,8 @@ class ListenUdp(remote: InetSocketAddress) extends ActorPublisher[Udp.Received] 
   def ready(socket: ActorRef): Receive = {
     case Udp.Received(data, remote) =>
       log.info(s" ############### data: $data")
+//      val x = data.unzip
+//      log.info(s" ############### x: $x")
       log.info(s" ############### data: ${data.decodeString("UTF-8")}")
       log.info(s" ############### remote: $remote")
       val processed = convertToGelf(data.decodeString("UTF-8"))

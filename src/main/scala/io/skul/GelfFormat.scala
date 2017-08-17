@@ -1,3 +1,5 @@
+package io.skul
+
 
 
 import play.api.libs.json._
