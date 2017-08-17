@@ -12,7 +12,7 @@ object Main {
     implicit val materializer = ActorMaterializer()
 
     val source = ListenUdp(new InetSocketAddress("0.0.0.0", 2551))
-    source.runForeach(r => println("Received " + r.data.decodeString("UTF-8") + " from " + r.sender))
+    source.runForeach(r => println("Received " +  r))
   }
 
 }

@@ -8,74 +8,58 @@ import akka.actor.{ActorLogging, ActorRef, Props}
 import akka.io.{IO, Udp}
 import akka.stream.actor.ActorPublisher
 import akka.stream.scaladsl.Source
-import play.api.libs.json.Json
+import play.api.libs.json.{JsNumber, JsObject, JsString, Json}
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 
 object ListenUdp {
   def props(listenOn: InetSocketAddress, maxBufferSize: Int = 100): Props = Props(new ListenUdp(listenOn))
-  def apply(listenOn: InetSocketAddress, maxBufferSize: Int = 100) = Source.actorPublisher[Udp.Received](ListenUdp.props(listenOn))
+  def apply(listenOn: InetSocketAddress, maxBufferSize: Int = 100): Source[GelfMessage, ActorRef] =
+    Source.actorPublisher[GelfMessage](ListenUdp.props(listenOn))
 }
 
-class ListenUdp(remote: InetSocketAddress) extends ActorPublisher[Udp.Received] with ActorLogging {
+class ListenUdp(remote: InetSocketAddress) extends ActorPublisher[GelfMessage] with ActorLogging {
   import context.system
 
   IO(Udp) ! Udp.Bind(self, remote)
 
-  def receive = {
+  def receive :Receive = {
     case Udp.Bound(local) =>
       log.info(s"############ local: $local")
       context.become(ready(sender()))
   }
 
   def ready(socket: ActorRef): Receive = {
-    case Udp.Received(data, remote) =>
-      log.info(s" ############### data: $data")
-//      val x = data.unzip
-//      log.info(s" ############### x: $x")
-      log.info(s" ############### data: ${data.decodeString("UTF-8")}")
-      log.info(s" ############### remote: $remote")
-      val processed = convertToGelf(data.decodeString("UTF-8"))
-      println(s"%%%%%%%%%%%%%% processed: $processed")
-        socket ! Udp.Send(data, remote) // example server echoes back
-     // nextActor ! processed
+    case Udp.Received(data, _) =>
+      convertToGelf(data.decodeString("UTF-8")) match {
+        case Success(message) => onNext(message)
+        case Failure(ex0) => ex0.printStackTrace()
+      }
+
     case Udp.Unbind  => socket ! Udp.Unbind
     case Udp.Unbound => context.stop(self)
+
   }
 
-  private def convertToGelf(gelfString: String): GelfFormat = {
+  private def convertToGelf(gelfString: String): Try[GelfMessage]= Try {
 
-    val jsonObject = Json.parse(gelfString)
-    val baseData = jsonObject.as[BaseData]
+    val jsonObject = Json.parse(gelfString).as[JsObject]
+    val version: String = jsonObject.value("version").as[JsString].value
+    val host: String = jsonObject.value("host").as[JsString].value
+    val shortMessage: String = jsonObject.value("short_message").as[JsString].value
+    val fullMessage: Option[String] = jsonObject.value.get("fullMessage").map(_.as[JsString].value)
+    val timestamp: Option[Double] = jsonObject.value.get("timestamp").map(_.as[JsNumber].value.toDouble)
+    val level: Int = jsonObject.value("level").as[JsNumber].value.toInt
 
-    val clearedInput = gelfString.substring(1,gelfString.length-1).split(",").toSeq
-    val extraData = clearedInput.filter(_.trim.startsWith("\"_"))
-    val numberData = extraData filter { e =>
-      Try(e.split(":").last.toDouble).isSuccess
-    } map { numberDataString =>
-      val x = numberDataString.split(":").toSeq
-      NumberMetaData(
-        key = x(0),
-        value = x(1).toDouble
-      )
-    }
+    val list : List[OptionalField[_]] = jsonObject.keys.filter(_.startsWith("_")).map{ key =>
+      jsonObject.value(key) match {
+        case JsString(value) => StringOptionalField(key , value)
+        case JsNumber(value) => DoubleOptionalField(key , value.toDouble)
+      }
+    }.toList
 
-    val stringData = extraData filterNot { e =>
-      Try(e.split(":").last.toDouble).isSuccess
-    } map { stringDataString =>
-      val x = stringDataString.split(":").toSeq
-      StringMetaData(
-        key = x(0),
-        value = x(1)
-      )
-    }
-
-    GelfFormat(
-      baseData,
-      stringData,
-      numberData
-    )
+    GelfMessage(version , host , shortMessage, fullMessage, timestamp, level ,list)
   }
 
 }
